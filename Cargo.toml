@@ -1,0 +1,9 @@
+[workspace]
+members = [
+    "loader",
+    "mouseplay",
+]
+default-members = [
+    "loader",
+    "mouseplay",
+]

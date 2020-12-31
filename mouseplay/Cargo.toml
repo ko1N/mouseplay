@@ -1,0 +1,17 @@
+[package]
+name = "mouseplay"
+version = "0.1.0"
+authors = ["John Smith"]
+edition = "2018"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+winapi = { version = "0.3.9", features = ["windef", "winuser", "winbase", "winnt", "windowsx", "consoleapi", "wincon", "processenv", "libloaderapi", "memoryapi", "impl-default"] }
+log = "0.4.8"
+simple_logger = "1.0"
+libc = "0.2"
+bitflags = "1.2"
+paste = "0.1"
+lazy_static = "1.4"
