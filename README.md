@@ -2,6 +2,8 @@
 
 mouseplay enables you to use a regular mouse & keyboard with the PS Remote Play Tool. The mouse and keyboard buttons are being translated to controller inputs.
 
+## This project is still work-in-progress and does not yet have a release version.
+
 ### Mapping files
 
 Mapping files are simple plain JSon files. You can find example mappings in the `mappings` subfolder.
