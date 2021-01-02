@@ -16,42 +16,38 @@ macro_rules! input_button {
     ($name:ident, $byte:expr, $bit:expr) => {
         paste::item! {
             pub fn [<btn_ $name>](&self) -> bool {
-                (self.buffer[$byte] & $bit.bits()) != 0
+                (self.buffer[$byte] & $bit) != 0
             }
 
-            pub fn [<set_btn_ $name>](&mut self, value: bool) {
-                if value {
-                    self.buffer[$byte] += $bit.bits();
+            pub fn [<set_btn_ $name>](&mut self, down: bool) {
+                if down {
+                    self.buffer[$byte] |= $bit;
                 } else {
-                    self.buffer[$byte] -= $bit.bits();
+                    self.buffer[$byte] &= !$bit;
                 }
             }
         }
     };
 }
 
-bitflags! {
-struct DS4Buttons: u8 {
-    const L2 = 1 << 2;
-    const R2 = 1 << 3;
-    const TRIANGLE = 1 << 7;
-    const CIRCLE = 1 << 6;
-    const CROSS = 1 << 5;
-    const SQUARE = 1 << 4;
-    const DPADUP = 1 << 3;
-    const DPADDOWN = 1 << 2;
-    const DPADLEFT = 1 << 1;
-    const DPADRIGHT = 1 << 0;
-    const L1 = 1 << 0;
-    const R1 = 1 << 1;
-    const SHARE = 1 << 4;
-    const OPTIONS = 1 << 5;
-    const L3 = 1 << 6;
-    const R3 = 1 << 7;
-    const PSBUTTON = 1 << 0;
-    const TOUCHBUTTON = 1 << 2 - 1;
-  }
-}
+const TRIANGLE: u8 = 1 << 7;
+const CIRCLE: u8 = 1 << 6;
+const CROSS: u8 = 1 << 5;
+const SQUARE: u8 = 1 << 4;
+
+const L1: u8 = 1 << 0;
+const R1: u8 = 1 << 1;
+
+const L2: u8 = 1 << 2;
+const R2: u8 = 1 << 3;
+
+const L3: u8 = 1 << 6;
+const R3: u8 = 1 << 7;
+
+const SHARE: u8 = 1 << 4;
+const OPTIONS: u8 = 1 << 5;
+const PSBUTTON: u8 = 1 << 0;
+const TOUCHBUTTON: u8 = 1 << 2 - 1;
 
 pub struct DS4 {
     buffer: Vec<u8>,
@@ -60,7 +56,8 @@ pub struct DS4 {
 #[allow(unused)]
 impl DS4 {
     pub fn new(buffer: &[u8]) -> Result<Self, &'static str> {
-        if buffer.len() == 64 && buffer[0] == 0x1 {
+        if buffer.len() == 64 {
+            // && buffer[0] == 0x1 {
             Ok(Self {
                 buffer: buffer.to_vec(),
             })
@@ -69,36 +66,76 @@ impl DS4 {
         }
     }
 
+    pub fn to_raw(&self) -> Vec<u8> {
+        self.buffer.clone()
+    }
+
     input_axis!(lx, 1);
     input_axis!(ly, 2);
     input_axis!(rx, 3);
     input_axis!(ry, 4);
 
-    input_button!(triangle, 5, DS4Buttons::TRIANGLE);
-    input_button!(circle, 5, DS4Buttons::CIRCLE);
-    input_button!(cross, 5, DS4Buttons::CROSS);
-    input_button!(square, 5, DS4Buttons::SQUARE);
+    input_button!(triangle, 5, TRIANGLE);
+    input_button!(circle, 5, CIRCLE);
+    input_button!(cross, 5, CROSS);
+    input_button!(square, 5, SQUARE);
 
-    input_button!(dpad_up, 5, DS4Buttons::DPADUP);
-    input_button!(dpad_down, 5, DS4Buttons::DPADDOWN);
-    input_button!(dpad_left, 5, DS4Buttons::DPADLEFT);
-    input_button!(dpad_right, 5, DS4Buttons::DPADRIGHT);
+    // dpad is in hat format, 0x8 is released state
 
-    input_button!(l1, 6, DS4Buttons::L1);
-    input_button!(r1, 6, DS4Buttons::R1);
+    input_button!(l1, 6, L1);
+    input_button!(r1, 6, R1);
 
     input_axis!(l2, 8);
     input_axis!(r2, 9);
-    input_button!(l2_btn, 6, DS4Buttons::L2);
-    input_button!(r2_btn, 6, DS4Buttons::R2);
+    input_button!(l2, 6, L2);
+    input_button!(r2, 6, R2);
 
-    input_button!(l3, 6, DS4Buttons::L3);
-    input_button!(r3, 6, DS4Buttons::R3);
+    input_button!(l3, 6, L3);
+    input_button!(r3, 6, R3);
 
-    input_button!(share, 6, DS4Buttons::SHARE);
-    input_button!(options, 6, DS4Buttons::OPTIONS);
-    input_button!(ps_btn, 7, DS4Buttons::PSBUTTON);
-    input_button!(touch_btn, 7, DS4Buttons::TOUCHBUTTON);
+    input_button!(share, 6, SHARE);
+    input_button!(options, 6, OPTIONS);
+    input_button!(ps, 7, PSBUTTON);
+    input_button!(touch, 7, TOUCHBUTTON);
+
+    pub fn set_btn(&mut self, button: &str, down: bool) {
+        match button {
+            "triangle" => self.set_btn_triangle(down),
+            "circle" => self.set_btn_circle(down),
+            "cross" => self.set_btn_cross(down),
+            "square" => self.set_btn_square(down),
+
+            "l1" => self.set_btn_l1(down),
+            "r1" => self.set_btn_r1(down),
+
+            "l2" => self.set_btn_l2(down),
+            "r2" => self.set_btn_r2(down),
+
+            "l3" => self.set_btn_l3(down),
+            "r3" => self.set_btn_r3(down),
+
+            "share" => self.set_btn_share(down),
+            "options" => self.set_btn_options(down),
+            "ps" => self.set_btn_ps(down),
+            "touch" => self.set_btn_touch(down),
+
+            _ => (),
+        }
+    }
+
+    pub fn set_axis(&mut self, axis: &str, value: u8) {
+        match axis {
+            "lx" => self.set_axis_lx(value),
+            "ly" => self.set_axis_ly(value),
+            "rx" => self.set_axis_rx(value),
+            "ry" => self.set_axis_ry(value),
+
+            "l2" => self.set_axis_l2(value),
+            "r2" => self.set_axis_r2(value),
+
+            _ => (),
+        }
+    }
 
     pub fn frame_count(&self) -> u8 {
         self.buffer[7] >> 2

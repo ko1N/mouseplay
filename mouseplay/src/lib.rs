@@ -4,9 +4,6 @@ mod hooks;
 mod input;
 mod mapper;
 
-#[macro_use]
-extern crate bitflags;
-
 use winapi::um::winnt::{DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH};
 
 #[no_mangle]

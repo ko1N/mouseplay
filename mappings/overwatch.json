@@ -1,0 +1,45 @@
+[
+    { "type": "Button", "input": "f1", "output": "share" },
+    { "type": "Button", "input": "f2", "output": "options" },
+    { "type": "Button", "input": "f3", "output": "ps" },
+
+    { "type": "Axis", "input": "w", "output": "ly", "value": -1 },
+    { "type": "Axis", "input": "a", "output": "lx", "value": -1 },
+    { "type": "Axis", "input": "s", "output": "ly", "value": 1 },
+    { "type": "Axis", "input": "d", "output": "lx", "value": 1 },
+
+    { "type": "Button", "input": "mouse1", "output": "r2" },
+    { "type": "Axis", "input": "mouse1", "output": "r2", "value": 1 },
+    { "type": "Button", "input": "mouse2", "output": "l2" },
+    { "type": "Axis", "input": "mouse2", "output": "l2", "value": 1 },
+
+    { "type": "Button", "input": "space", "output": "cross" },
+    { "type": "Button", "input": "ctrl", "output": "circle" },
+
+    { "type": "Button", "input": "q", "output": "triangle" },
+    { "type": "Button", "input": "r", "output": "square" },
+    { "type": "Button", "input": "shift", "output": "l1" },
+    { "type": "Button", "input": "e", "output": "r1" },
+
+    { "type": "Button", "input": "f", "output": "l3" },
+    { "type": "Button", "input": "v", "output": "r3" },
+
+    { "type": "Button", "input": "tab", "output": "touch" },
+
+    {
+        "type": "Mouse",
+        
+        "output_x": "rx",
+        "multiplier_x": 0.3,
+        "dead_zone_x": 13,
+
+        "output_y": "ry",
+        "multiplier_y": 0.3,
+        "dead_zone_y": 13,
+
+        "sensitivity": 5,
+        "exponent": 1,
+
+        "shape": "circle"
+    }
+]

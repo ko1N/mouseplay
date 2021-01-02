@@ -1,5 +1,0 @@
-{
-    "mappings": [
-        { "type": "Button", "input": "space", "output": "x"}
-    ]
-}

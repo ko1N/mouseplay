@@ -1,5 +1,6 @@
 use crate::controller::ds4::DS4;
 
+use std::ffi::OsString;
 use std::ffi::{c_void, CStr, CString};
 use std::mem::size_of;
 
@@ -9,6 +10,7 @@ use libc::strcmp;
 use winapi::{
     shared::minwindef::LPCVOID,
     um::{
+        handleapi::INVALID_HANDLE_VALUE,
         libloaderapi::GetModuleHandleA,
         memoryapi::VirtualProtect,
         minwinbase::LPSECURITY_ATTRIBUTES,
@@ -25,6 +27,11 @@ use winapi::{
     },
     um::minwinbase::LPOVERLAPPED,
 };
+
+static CONTROLLER_FILE_HANDLE_SPOOF: u64 = 1234;
+
+// TODO: fix potential thread safety issue (RwLock)
+static mut CONTROLLER_FILE_HANDLE: HANDLE = std::ptr::null_mut();
 
 unsafe fn hook_import(
     target_module: &str,
@@ -123,9 +130,9 @@ unsafe extern "stdcall" fn hook_is_debugger_present() -> BOOL {
     0
 }
 
-use std::ffi::OsString;
-use std::os::windows::prelude::*;
 unsafe fn u16_ptr_to_string(ptr: *const u16) -> OsString {
+    use std::os::windows::prelude::*;
+
     let len = (0..).take_while(|&i| *ptr.offset(i) != 0).count();
     let slice = std::slice::from_raw_parts(ptr, len);
     OsString::from_wide(slice)
@@ -143,13 +150,6 @@ unsafe extern "stdcall" fn hook_create_file(
 ) -> HANDLE {
     //info!("hook_create_file(): lp_file_name={:?}, dw_desired_access={:?}, dw_share_mode={:?}, lp_security_attributes={:?}, dw_creation_disposition={:?}, dw_flags_and_attributes={:?}, h_template_file={:?}",
     //  lp_file_name, dw_desired_access, dw_share_mode, lp_security_attributes, dw_creation_disposition, dw_flags_and_attributes, h_template_file);
-
-    let lp_file_name_str = u16_ptr_to_string(lp_file_name);
-
-    //let lp_file_name_str = String::from_utf16_lossy(lp_file_name.as_slice());
-    // info!("opening file: {}", lp_file_name_str.to_str().unwrap());
-
-    // \\?\hid#rev_01#6&39fdb758&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}
 
     let orig_func: extern "stdcall" fn(
         _: LPCWSTR,
@@ -170,7 +170,24 @@ unsafe extern "stdcall" fn hook_create_file(
         h_template_file,
     );
 
-    //info!("result={}", result as u64);
+    let lp_file_name_str = u16_ptr_to_string(lp_file_name);
+    let is_controller = lp_file_name_str
+        == "\\\\?\\hid#rev_01#6&39fdb758&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+
+    if is_controller {
+        info!(
+            "opening ds4 file handle: {}",
+            lp_file_name_str.to_str().unwrap()
+        );
+
+        if result == INVALID_HANDLE_VALUE {
+            info!("spoofing presence of ds4");
+            CONTROLLER_FILE_HANDLE = CONTROLLER_FILE_HANDLE_SPOOF as _;
+            return CONTROLLER_FILE_HANDLE_SPOOF as _;
+        } else {
+            CONTROLLER_FILE_HANDLE = result;
+        }
+    }
 
     result
 }
@@ -183,23 +200,32 @@ unsafe extern "stdcall" fn hook_read_file(
     lp_number_of_bytes_read: LPDWORD,
     lp_overlapped: LPOVERLAPPED,
 ) -> BOOL {
-    //info!("hook_read_file(): h_file={:?}, lp_bufer={:?}, n_number_of_bytes_to_read={:?}, lp_number_of_bytes_read={:?}, lp_overlapped={:?}",
+    //trace!("hook_read_file(): h_file={:?}, lp_bufer={:?}, n_number_of_bytes_to_read={:?}, lp_number_of_bytes_read={:?}, lp_overlapped={:?}",
     //  h_file, lp_buffer, n_number_of_bytes_to_read, lp_number_of_bytes_read, lp_overlapped);
+
     let mut bytes_read = 0;
-    let orig_func: extern "stdcall" fn(
-        _: HANDLE,
-        _: LPVOID,
-        _: DWORD,
-        _: LPDWORD,
-        _: LPOVERLAPPED,
-    ) -> BOOL = std::mem::transmute(ORIG_READ_FILE);
-    let result = orig_func(
-        h_file,
-        lp_buffer,
-        n_number_of_bytes_to_read,
-        &mut bytes_read as _,
-        lp_overlapped,
-    );
+
+    // only call original func if we are not spoofing a controller presence
+    let result = if h_file != CONTROLLER_FILE_HANDLE_SPOOF as _ {
+        let orig_func: extern "stdcall" fn(
+            _: HANDLE,
+            _: LPVOID,
+            _: DWORD,
+            _: LPDWORD,
+            _: LPOVERLAPPED,
+        ) -> BOOL = std::mem::transmute(ORIG_READ_FILE);
+        orig_func(
+            h_file,
+            lp_buffer,
+            n_number_of_bytes_to_read,
+            &mut bytes_read as _,
+            lp_overlapped,
+        )
+    } else {
+        bytes_read = n_number_of_bytes_to_read;
+        1
+    };
+
     if !lp_number_of_bytes_read.is_null() {
         *lp_number_of_bytes_read = bytes_read;
     }
@@ -207,9 +233,13 @@ unsafe extern "stdcall" fn hook_read_file(
     // TODO:
     crate::input::raw_input::hijack_wndproc().unwrap();
 
+    if h_file == CONTROLLER_FILE_HANDLE {
+        println!("reading controller: {}", bytes_read);
+    }
+
     // TODO: figure out if we are in ds4 or ds5 mode
-    let buffer = std::slice::from_raw_parts(lp_buffer as *mut u8, bytes_read as usize);
-    if let Ok(ds4) = DS4::new(buffer) {
+    let buffer = std::slice::from_raw_parts_mut(lp_buffer as *mut u8, bytes_read as usize);
+    if let Ok(mut ds4) = DS4::new(buffer) {
         /*
         println!(
             "lx={}, ly={}, rx={}, ry={}, frame_count={}, battery={}, is_charging={}",
@@ -223,8 +253,15 @@ unsafe extern "stdcall" fn hook_read_file(
         );
         */
 
-        if let Ok(mut lock) = crate::input::raw_input::RAW_INPUT.write() {
-            lock.translate();
+        if let Ok(mut raw_input) = crate::input::raw_input::RAW_INPUT.write() {
+            if let Ok(mut mapper) = crate::mapper::MAPPER.write() {
+                if let Some(mapper) = mapper.as_mut() {
+                    raw_input.accumulate();
+
+                    mapper.map_controller(&raw_input, &mut ds4);
+                    buffer.copy_from_slice(ds4.to_raw().as_slice());
+                }
+            }
         }
     }
 
@@ -239,8 +276,8 @@ unsafe extern "stdcall" fn hook_write_file(
     lp_number_of_bytes_written: LPDWORD,
     lp_overlapped: LPOVERLAPPED,
 ) -> BOOL {
-    info!("hook_write_file(): h_file={:?}, lp_bufer={:?}, n_number_of_bytes_to_write={:?}, lp_number_of_bytes_written={:?}, lp_overlapped={:?}",
-      h_file, lp_buffer, n_number_of_bytes_to_write, lp_number_of_bytes_written, lp_overlapped);
+    //info!("hook_write_file(): h_file={:?}, lp_bufer={:?}, n_number_of_bytes_to_write={:?}, lp_number_of_bytes_written={:?}, lp_overlapped={:?}",
+    //  h_file, lp_buffer, n_number_of_bytes_to_write, lp_number_of_bytes_written, lp_overlapped);
 
     if n_number_of_bytes_to_write == 32 {
         let slice = std::slice::from_raw_parts_mut(
@@ -273,7 +310,7 @@ unsafe extern "stdcall" fn hook_write_file(
 
     if bytes_written == 32 {
         let slice = std::slice::from_raw_parts(lp_buffer as *mut u8, bytes_written as usize);
-        info!("written: {:?}", slice);
+        //info!("written: {:?}", slice);
     }
 
     result

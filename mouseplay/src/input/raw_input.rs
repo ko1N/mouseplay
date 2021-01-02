@@ -3,7 +3,7 @@ use std::ffi::{c_void, CString};
 use std::mem::size_of;
 use std::sync::RwLock;
 
-use log::{info, warn};
+use log::{info, trace, warn};
 
 use lazy_static::lazy_static;
 use winapi::{
@@ -12,14 +12,7 @@ use winapi::{
         windef::{HWND, RECT},
         windowsx::GET_Y_LPARAM,
     },
-    um::winuser::{
-        CallWindowProcW, FindWindowA, GetRawInputData, GetWindowLongPtrA, GetWindowRect,
-        RegisterRawInputDevices, SetCapture, SetCursor, SetCursorPos, SetWindowLongPtrA,
-        ShowCursor, ShowWindow, GWL_WNDPROC, HTCLIENT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER,
-        RID_INPUT, RIM_TYPEKEYBOARD, RIM_TYPEMOUSE, SW_HIDE, SW_SHOW, VK_ESCAPE, VK_LBUTTON,
-        VK_MBUTTON, VK_RBUTTON, VK_XBUTTON1, VK_XBUTTON2, WM_INPUT, WM_KEYDOWN, WM_MOUSEMOVE,
-        WM_PARENTNOTIFY, WNDPROC,
-    },
+    um::winuser::*,
 };
 
 lazy_static! {
@@ -65,25 +58,6 @@ unsafe extern "system" fn hook_wndproc(
 ) -> LRESULT {
     //info!("hook_wndproc(): h_wnd=0x{:x} u_msg={:x} w_param={:x} l_param={:x}", h_wnd as u64, u_msg, w_param, l_param);
 
-    /*
-      case WM_LBUTTONDOWN:
-      case WM_LBUTTONDBLCLK:
-      case WM_LBUTTONUP:
-      case WM_RBUTTONDOWN:
-      case WM_RBUTTONDBLCLK:
-      case WM_RBUTTONUP:
-      case WM_MBUTTONDOWN:
-      case WM_MBUTTONDBLCLK:
-      case WM_MBUTTONUP:
-        return TRUE;
-
-      case WM_KEYDOWN:
-      case WM_SYSKEYDOWN:
-      case WM_KEYUP:
-      case WM_SYSKEYUP:
-        return TRUE;
-    */
-
     // TODO: re-center mouse + prevent inputs from being fed into the original window
     let call_wndproc = if let Ok(mut raw_input) = RAW_INPUT.write() {
         raw_input.parse(h_wnd, u_msg, w_param, l_param).unwrap()
@@ -107,25 +81,22 @@ unsafe extern "system" fn hook_wndproc(
     0
 }
 
-bitflags! {
-struct MouseButtons: u32 {
-    const LBUTTONDOWN = 1 << 0;
-    const LBUTTONUP = 1 << 1;
-    const RBUTTONDOWN = 1 << 2;
-    const RBUTTONUP = 1 << 3;
-    const MBUTTONDOWN = 1 << 4;
-    const MBUTTONUP = 1 << 5;
-    const XBUTTON1DOWN = 1 << 6;
-    const XBUTTON1UP = 1 << 7;
-    const XBUTTON2DOWN = 1 << 8;
-    const XBUTTON2UP = 1 << 9;
-  }
-}
-
+const LBUTTONDOWN: u16 = 1 << 0;
+const LBUTTONUP: u16 = 1 << 1;
+const RBUTTONDOWN: u16 = 1 << 2;
+const RBUTTONUP: u16 = 1 << 3;
+const MBUTTONDOWN: u16 = 1 << 4;
+const MBUTTONUP: u16 = 1 << 5;
+const XBUTTON1DOWN: u16 = 1 << 6;
+const XBUTTON1UP: u16 = 1 << 7;
+const XBUTTON2DOWN: u16 = 1 << 8;
+const XBUTTON2UP: u16 = 1 << 9;
 pub struct RawInput {
     capture: Option<u64>,
     mouse_lock: bool,
     keys: [bool; 256],
+    mouse: [i32; 2],
+    mouse_accumulator: [i32; 2],
 }
 
 impl RawInput {
@@ -153,10 +124,28 @@ impl RawInput {
                 capture: None,
                 mouse_lock: false,
                 keys: [false; 256],
+                mouse: [0; 2],
+                mouse_accumulator: [0; 2],
             })
         } else {
             Err("unable to register raw input devices")
         }
+    }
+
+    pub fn key(&self, button: &str) -> bool {
+        match str_to_vk(button) {
+            Ok(vk) => self.keys[vk as usize],
+            Err(_) => false,
+        }
+    }
+
+    // TODO:
+    pub fn mouse_x(&self) -> i32 {
+        self.mouse[0]
+    }
+
+    pub fn mouse_y(&self) -> i32 {
+        self.mouse[1]
     }
 
     pub fn parse(
@@ -166,14 +155,19 @@ impl RawInput {
         w_param: WPARAM,
         l_param: LPARAM,
     ) -> Result<bool, &'static str> {
+        // validate existence of capture wnd
+        if let Some(h_wnd) = self.capture {
+            if unsafe { IsWindow(h_wnd as _) } == 0 {
+                self.capture = None;
+            }
+        }
+
         match u_msg {
             WM_INPUT => {
                 // we do not always get WM_INPUT messages so we wait until the connection is established
                 self.capture = Some(h_wnd as u64);
+                self.parse_raw_input(l_param)?;
                 if self.mouse_lock {
-                    //SetCapture(h_wnd);
-                    self.parse_raw_input(l_param)?;
-                    //self.center_mouse(h_wnd);
                     return Ok(false);
                 }
             }
@@ -193,15 +187,23 @@ impl RawInput {
             WM_SETCURSOR => {
                 if self.capture.is_some() {
                     if self.mouse_lock {
-                        if LOWORD(l_param as _) as isize == HTCLIENT {
-                            println!("removing cursor!!!");
+                        // TODO: remove cursor?
+                        /*if LOWORD(l_param as _) as isize == HTCLIENT {
                             unsafe { SetCursor(std::ptr::null_mut()) };
-                        }
+                        }*/
                         return Ok(false);
                     } else {
                     }
                 }
             }
+            WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_LBUTTONUP | WM_RBUTTONDOWN
+            | WM_RBUTTONDBLCLK | WM_RBUTTONUP | WM_MBUTTONDOWN | WM_MBUTTONDBLCLK
+            | WM_MBUTTONUP | WM_KEYDOWN | WM_SYSKEYDOWN | WM_KEYUP | WM_SYSKEYUP => {
+                if self.capture.is_some() && self.mouse_lock {
+                    return Ok(false);
+                }
+            }
+
             _ => {}
         }
         Ok(true)
@@ -236,54 +238,11 @@ impl RawInput {
         match unsafe { (*rid).header.dwType } {
             RIM_TYPEMOUSE => {
                 let mouse = unsafe { (*rid).data.mouse() };
-                // TODO: compute delta + accumulate mouse input
-
-                //this->m_mouse[0] += raw->data.mouse.lLastX;
-                //this->m_mouse[1] += raw->data.mouse.lLastY;
-
-                let mouse_x = mouse.lLastX;
-                let mouse_y = mouse.lLastY;
-
-                //println!("mouse_x={}, mouse_y={}", mouse_x, mouse_y);
-
-                if mouse.ulRawButtons & (MouseButtons::LBUTTONDOWN.bits() as u32) != 0 {
-                    self.keys[VK_LBUTTON as usize] = true;
-                } else if mouse.ulRawButtons & (MouseButtons::LBUTTONUP.bits() as u32) != 0 {
-                    self.keys[VK_LBUTTON as usize] = false;
-                } else if mouse.ulRawButtons & (MouseButtons::RBUTTONDOWN.bits() as u32) != 0 {
-                    self.keys[VK_RBUTTON as usize] = true;
-                } else if mouse.ulRawButtons & (MouseButtons::RBUTTONUP.bits() as u32) != 0 {
-                    self.keys[VK_RBUTTON as usize] = false;
-                } else if mouse.ulRawButtons & (MouseButtons::MBUTTONDOWN.bits() as u32) != 0 {
-                    self.keys[VK_MBUTTON as usize] = true;
-                } else if mouse.ulRawButtons & (MouseButtons::MBUTTONUP.bits() as u32) != 0 {
-                    self.keys[VK_MBUTTON as usize] = false;
-                } else if mouse.ulRawButtons & (MouseButtons::XBUTTON1DOWN.bits() as u32) != 0 {
-                    self.keys[VK_XBUTTON1 as usize] = true;
-                } else if mouse.ulRawButtons & (MouseButtons::XBUTTON1UP.bits() as u32) != 0 {
-                    self.keys[VK_XBUTTON1 as usize] = false;
-                } else if mouse.ulRawButtons & (MouseButtons::XBUTTON2DOWN.bits() as u32) != 0 {
-                    self.keys[VK_XBUTTON2 as usize] = true;
-                } else if mouse.ulRawButtons & (MouseButtons::XBUTTON2UP.bits() as u32) != 0 {
-                    self.keys[VK_XBUTTON2 as usize] = false;
-                }
+                self.parse_mouse(mouse);
             }
             RIM_TYPEKEYBOARD => {
-                let keyboard = unsafe { (*rid).data.keyboard() };
-                if keyboard.Flags == 0 {
-                    if keyboard.VKey as i32 == VK_ESCAPE {
-                        info!("unlocking mouse");
-                        self.mouse_lock = false;
-                    }
-
-                    // down
-                    println!("key down: {}", keyboard.VKey);
-                    self.keys[keyboard.VKey as usize] = true;
-                } else {
-                    // up
-                    println!("key up: {}", keyboard.VKey);
-                    self.keys[keyboard.VKey as usize] = false;
-                }
+                let kbd = unsafe { (*rid).data.keyboard() };
+                self.parse_keyboard(kbd);
             }
             _ => {}
         };
@@ -291,20 +250,80 @@ impl RawInput {
         Ok(())
     }
 
-    // TODO: find better name for this
-    pub fn translate(&mut self) {
+    fn parse_mouse(&mut self, mouse: &RAWMOUSE) {
+        self.mouse_accumulator[0] += mouse.lLastX;
+        self.mouse_accumulator[1] += mouse.lLastY;
+
+        if mouse.usButtonFlags & LBUTTONDOWN != 0 {
+            self.keys[VK_LBUTTON as usize] = true;
+        }
+        if mouse.usButtonFlags & LBUTTONUP != 0 {
+            self.keys[VK_LBUTTON as usize] = false;
+        }
+        if mouse.usButtonFlags & RBUTTONDOWN != 0 {
+            self.keys[VK_RBUTTON as usize] = true;
+        }
+        if mouse.usButtonFlags & RBUTTONUP != 0 {
+            self.keys[VK_RBUTTON as usize] = false;
+        }
+        if mouse.usButtonFlags & MBUTTONDOWN != 0 {
+            self.keys[VK_MBUTTON as usize] = true;
+        }
+        if mouse.usButtonFlags & MBUTTONUP != 0 {
+            self.keys[VK_MBUTTON as usize] = false;
+        }
+        if mouse.usButtonFlags & XBUTTON1DOWN != 0 {
+            self.keys[VK_XBUTTON1 as usize] = true;
+        }
+        if mouse.usButtonFlags & XBUTTON1UP != 0 {
+            self.keys[VK_XBUTTON1 as usize] = false;
+        }
+        if mouse.usButtonFlags & XBUTTON2DOWN != 0 {
+            self.keys[VK_XBUTTON2 as usize] = true;
+        }
+        if mouse.usButtonFlags & XBUTTON2UP != 0 {
+            self.keys[VK_XBUTTON2 as usize] = false;
+        }
+    }
+
+    fn parse_keyboard(&mut self, kbd: &RAWKEYBOARD) {
+        if kbd.Flags == 0 {
+            trace!("key up: {}", kbd.VKey);
+            self.keys[kbd.VKey as usize] = true;
+        } else {
+            trace!("key up: {}", kbd.VKey);
+            self.keys[kbd.VKey as usize] = false;
+        }
+
+        // check unlock key combination shift+escape
+        if self.keys[VK_SHIFT as usize] && self.keys[VK_ESCAPE as usize] {
+            info!("unlocking mouse");
+            self.mouse_lock = false;
+        }
+    }
+
+    pub fn accumulate(&mut self) {
         if let Some(h_wnd) = self.capture {
             // TODO: handle self.mouse_lock == false
 
-            // after each translation we re-center the mouse
+            // unlock mouse
+            if self.mouse_lock && unsafe { IsWindow(h_wnd as _) } == 0 {
+                self.mouse_lock = false;
+            }
+
             if self.mouse_lock {
+                self.mouse[0] = self.mouse_accumulator[0];
+                self.mouse[1] = self.mouse_accumulator[1];
                 self.center_mouse(h_wnd as HWND);
-            //unsafe { ShowCursor(0) };
             } else {
-                // TODO: only once
-                //unsafe { ShowCursor(1) };
+                self.mouse[0] = 0;
+                self.mouse[1] = 0;
             }
         }
+
+        // reset mouse
+        self.mouse_accumulator[0] = 0;
+        self.mouse_accumulator[1] = 0;
     }
 
     fn center_mouse(&self, h_wnd: HWND) {
@@ -317,5 +336,99 @@ impl RawInput {
                 ((rect.bottom + rect.top) as f32 / 2.0) as i32,
             );
         }
+    }
+}
+
+fn str_to_vk(key: &str) -> Result<i32, &'static str> {
+    match key {
+        "mouse1" => Ok(VK_LBUTTON),
+        "mouse2" => Ok(VK_RBUTTON),
+        "mouse3" => Ok(VK_MBUTTON),
+        "mouse4" => Ok(VK_XBUTTON1),
+        "mouse5" => Ok(VK_XBUTTON2),
+        "shift" => Ok(VK_SHIFT),
+        "lshift" => Ok(VK_LSHIFT),
+        "rshift" => Ok(VK_RSHIFT),
+        "alt" => Ok(VK_MENU),
+        "lalt" => Ok(VK_LMENU),
+        "ralt" => Ok(VK_RMENU),
+        "ctrl" => Ok(VK_CONTROL),
+        "lctrl" => Ok(VK_LCONTROL),
+        "rctrl" => Ok(VK_RCONTROL),
+        "tab" => Ok(VK_TAB),
+        "up" => Ok(VK_UP),
+        "down" => Ok(VK_DOWN),
+        "left" => Ok(VK_LEFT),
+        "right" => Ok(VK_RIGHT),
+        "insert" => Ok(VK_INSERT),
+        "delete" => Ok(VK_DELETE),
+        "home" => Ok(VK_HOME),
+        "end" => Ok(VK_END),
+        "pgup" => Ok(VK_PRIOR),
+        "pgdn" => Ok(VK_NEXT),
+        "backspace" => Ok(VK_BACK),
+        "enter" => Ok(VK_RETURN),
+        "pause" => Ok(VK_PAUSE),
+        "numlock" => Ok(VK_NUMLOCK),
+        "space" => Ok(VK_SPACE),
+        "kp_0" => Ok(VK_NUMPAD0),
+        "kp_1" => Ok(VK_NUMPAD1),
+        "kp_2" => Ok(VK_NUMPAD2),
+        "kp_3" => Ok(VK_NUMPAD3),
+        "kp_4" => Ok(VK_NUMPAD4),
+        "kp_5" => Ok(VK_NUMPAD5),
+        "kp_6" => Ok(VK_NUMPAD6),
+        "kp_7" => Ok(VK_NUMPAD7),
+        "kp_8" => Ok(VK_NUMPAD8),
+        "kp_9" => Ok(VK_NUMPAD9),
+        "f1" => Ok(VK_F1),
+        "f2" => Ok(VK_F2),
+        "f3" => Ok(VK_F3),
+        "f4" => Ok(VK_F4),
+        "f5" => Ok(VK_F5),
+        "f6" => Ok(VK_F6),
+        "f7" => Ok(VK_F7),
+        "f8" => Ok(VK_F8),
+        "f9" => Ok(VK_F9),
+        "f10" => Ok(VK_F10),
+        "f11" => Ok(VK_F11),
+        "f12" => Ok(VK_F12),
+        "0" => Ok(58),
+        "1" => Ok(49),
+        "2" => Ok(50),
+        "3" => Ok(51),
+        "4" => Ok(52),
+        "5" => Ok(53),
+        "6" => Ok(54),
+        "7" => Ok(55),
+        "8" => Ok(56),
+        "9" => Ok(57),
+        "a" => Ok(65),
+        "b" => Ok(66),
+        "c" => Ok(67),
+        "d" => Ok(68),
+        "e" => Ok(69),
+        "f" => Ok(70),
+        "g" => Ok(71),
+        "h" => Ok(72),
+        "i" => Ok(73),
+        "j" => Ok(74),
+        "k" => Ok(75),
+        "l" => Ok(76),
+        "m" => Ok(77),
+        "n" => Ok(78),
+        "o" => Ok(79),
+        "p" => Ok(80),
+        "q" => Ok(81),
+        "r" => Ok(82),
+        "s" => Ok(83),
+        "t" => Ok(84),
+        "u" => Ok(85),
+        "v" => Ok(86),
+        "w" => Ok(87),
+        "x" => Ok(88),
+        "y" => Ok(89),
+        "z" => Ok(90),
+        _ => Err("invalid keycode"),
     }
 }
