@@ -15,15 +15,18 @@ use winapi::{
     um::winuser::{
         CallWindowProcW, FindWindowA, GetRawInputData, GetWindowLongPtrA, GetWindowRect,
         RegisterRawInputDevices, SetCapture, SetCursor, SetCursorPos, SetWindowLongPtrA,
-        ShowCursor, GWL_WNDPROC, HTCLIENT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER, RID_INPUT,
-        RIM_TYPEKEYBOARD, RIM_TYPEMOUSE, VK_ESCAPE, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON,
-        VK_XBUTTON1, VK_XBUTTON2, WM_INPUT, WM_KEYDOWN, WM_PARENTNOTIFY, WNDPROC,
+        ShowCursor, ShowWindow, GWL_WNDPROC, HTCLIENT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER,
+        RID_INPUT, RIM_TYPEKEYBOARD, RIM_TYPEMOUSE, SW_HIDE, SW_SHOW, VK_ESCAPE, VK_LBUTTON,
+        VK_MBUTTON, VK_RBUTTON, VK_XBUTTON1, VK_XBUTTON2, WM_INPUT, WM_KEYDOWN, WM_MOUSEMOVE,
+        WM_PARENTNOTIFY, WNDPROC,
     },
 };
 
-// thread safe storage for all known wndprocs
 lazy_static! {
+    // thread safe storage for all known wndprocs
     static ref ORIG_WNDPROCS: RwLock<HashMap<u64, u64>> = RwLock::new(HashMap::new());
+
+    // thread safe storage for the global RawInput handler
     pub static ref RAW_INPUT: RwLock<RawInput> = RwLock::new(RawInput::new().unwrap());
 }
 

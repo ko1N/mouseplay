@@ -2,6 +2,7 @@ mod console;
 mod controller;
 mod hooks;
 mod input;
+mod mapper;
 
 #[macro_use]
 extern crate bitflags;
@@ -15,6 +16,7 @@ extern "system" fn DllMain(_hinst: *const u8, reason: u32, _reserved: *const u8)
             std::thread::spawn(|| {
                 console::init();
                 hooks::setup();
+                mapper::load("mappings.json").unwrap();
             });
         }
         DLL_PROCESS_DETACH => {
