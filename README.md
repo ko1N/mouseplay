@@ -28,6 +28,10 @@ or execute the provided `build.bat` file.
 - Mouse cursor and toolbar is not hidden when mouse lock is active
 - Not all cases of window transitions (windows opening and closing) are handled well yet
 
+### Demo
+
+[![mouseplay demo](http://img.youtube.com/vi/0QhSsvRO_Y8/0.jpg)](http://www.youtube.com/watch?v=0QhSsvRO_Y8 "mouseplay demo")
+
 ## License
 
 Licensed under GPL-3.0 License, see [LICENSE](LICENSE).
