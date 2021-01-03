@@ -28,11 +28,6 @@ use winapi::{
     um::minwinbase::LPOVERLAPPED,
 };
 
-static CONTROLLER_FILE_HANDLE_SPOOF: u64 = 1234;
-
-// TODO: fix potential thread safety issue (RwLock)
-static mut CONTROLLER_FILE_HANDLE: HANDLE = std::ptr::null_mut();
-
 unsafe fn hook_import(
     target_module: &str,
     import_module: &str,
@@ -171,23 +166,6 @@ unsafe extern "stdcall" fn hook_create_file(
     );
 
     let lp_file_name_str = u16_ptr_to_string(lp_file_name);
-    let is_controller = lp_file_name_str
-        == "\\\\?\\hid#rev_01#6&39fdb758&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
-
-    if is_controller {
-        info!(
-            "opening ds4 file handle: {}",
-            lp_file_name_str.to_str().unwrap()
-        );
-
-        if result == INVALID_HANDLE_VALUE {
-            info!("spoofing presence of ds4");
-            CONTROLLER_FILE_HANDLE = CONTROLLER_FILE_HANDLE_SPOOF as _;
-            return CONTROLLER_FILE_HANDLE_SPOOF as _;
-        } else {
-            CONTROLLER_FILE_HANDLE = result;
-        }
-    }
 
     result
 }
@@ -230,36 +208,25 @@ unsafe extern "stdcall" fn hook_read_file(
         *lp_number_of_bytes_read = bytes_read;
     }
 
-    // TODO:
+    // hijack wndproc
     crate::input::raw_input::hijack_wndproc().unwrap();
 
-    if h_file == CONTROLLER_FILE_HANDLE {
-        println!("reading controller: {}", bytes_read);
-    }
-
     // TODO: figure out if we are in ds4 or ds5 mode
+
+    // try to find a request with 64 bytes to determine the controller handle
     let buffer = std::slice::from_raw_parts_mut(lp_buffer as *mut u8, bytes_read as usize);
-    if let Ok(mut ds4) = DS4::new(buffer) {
-        /*
-        println!(
-            "lx={}, ly={}, rx={}, ry={}, frame_count={}, battery={}, is_charging={}",
-            ds4.axis_lx(),
-            ds4.axis_ly(),
-            ds4.axis_rx(),
-            ds4.axis_ry(),
-            ds4.frame_count(),
-            ds4.battery(),
-            ds4.is_charging(),
-        );
-        */
-
-        if let Ok(mut raw_input) = crate::input::raw_input::RAW_INPUT.write() {
-            if let Ok(mut mapper) = crate::mapper::MAPPER.write() {
-                if let Some(mapper) = mapper.as_mut() {
-                    raw_input.accumulate();
-
-                    mapper.map_controller(&raw_input, &mut ds4);
-                    buffer.copy_from_slice(ds4.to_raw().as_slice());
+    if bytes_read >= 64 && bytes_read % 64 == 0 {
+        // sometimes a request can contain multiple reports
+        for buffer_part in buffer.chunks_exact_mut(64) {
+            if let Ok(mut ds4) = DS4::new(buffer_part) {
+                if let Ok(mut raw_input) = crate::input::raw_input::RAW_INPUT.write() {
+                    if let Ok(mut mapper) = crate::mapper::MAPPER.write() {
+                        if let Some(mapper) = mapper.as_mut() {
+                            raw_input.accumulate();
+                            mapper.map_controller(&raw_input, &mut ds4);
+                            buffer_part.copy_from_slice(ds4.to_raw().as_slice());
+                        }
+                    }
                 }
             }
         }
@@ -279,6 +246,7 @@ unsafe extern "stdcall" fn hook_write_file(
     //info!("hook_write_file(): h_file={:?}, lp_bufer={:?}, n_number_of_bytes_to_write={:?}, lp_number_of_bytes_written={:?}, lp_overlapped={:?}",
     //  h_file, lp_buffer, n_number_of_bytes_to_write, lp_number_of_bytes_written, lp_overlapped);
 
+    /*
     if n_number_of_bytes_to_write == 32 {
         let slice = std::slice::from_raw_parts_mut(
             lp_buffer as *mut u8,
@@ -288,6 +256,7 @@ unsafe extern "stdcall" fn hook_write_file(
         slice[4] = 100; // rumble
                         //slice[8] = 5; // rumble time?
     }
+    */
 
     let mut bytes_written = 0;
     let orig_func: extern "stdcall" fn(

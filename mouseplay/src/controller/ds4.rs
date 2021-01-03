@@ -56,8 +56,8 @@ pub struct DS4 {
 #[allow(unused)]
 impl DS4 {
     pub fn new(buffer: &[u8]) -> Result<Self, &'static str> {
+        // report _should_ be 64 bytes long
         if buffer.len() == 64 {
-            // && buffer[0] == 0x1 {
             Ok(Self {
                 buffer: buffer.to_vec(),
             })
