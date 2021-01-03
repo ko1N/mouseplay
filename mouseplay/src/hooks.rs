@@ -184,25 +184,20 @@ unsafe extern "stdcall" fn hook_read_file(
     let mut bytes_read = 0;
 
     // only call original func if we are not spoofing a controller presence
-    let result = if h_file != CONTROLLER_FILE_HANDLE_SPOOF as _ {
-        let orig_func: extern "stdcall" fn(
-            _: HANDLE,
-            _: LPVOID,
-            _: DWORD,
-            _: LPDWORD,
-            _: LPOVERLAPPED,
-        ) -> BOOL = std::mem::transmute(ORIG_READ_FILE);
-        orig_func(
-            h_file,
-            lp_buffer,
-            n_number_of_bytes_to_read,
-            &mut bytes_read as _,
-            lp_overlapped,
-        )
-    } else {
-        bytes_read = n_number_of_bytes_to_read;
-        1
-    };
+    let orig_func: extern "stdcall" fn(
+        _: HANDLE,
+        _: LPVOID,
+        _: DWORD,
+        _: LPDWORD,
+        _: LPOVERLAPPED,
+    ) -> BOOL = std::mem::transmute(ORIG_READ_FILE);
+    let result = orig_func(
+        h_file,
+        lp_buffer,
+        n_number_of_bytes_to_read,
+        &mut bytes_read as _,
+        lp_overlapped,
+    );
 
     if !lp_number_of_bytes_read.is_null() {
         *lp_number_of_bytes_read = bytes_read;

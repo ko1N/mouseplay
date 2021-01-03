@@ -25,6 +25,7 @@
     { "type": "Button", "input": "v", "output": "r3" },
 
     { "type": "Button", "input": "tab", "output": "touch" },
+    { "type": "Button", "input": "escape", "output": "options" },
 
     {
         "type": "Mouse",

@@ -381,6 +381,8 @@ fn str_to_vk(key: &str) -> Result<i32, &'static str> {
         "kp_7" => Ok(VK_NUMPAD7),
         "kp_8" => Ok(VK_NUMPAD8),
         "kp_9" => Ok(VK_NUMPAD9),
+        "esc" => Ok(VK_ESCAPE),
+        "escape" => Ok(VK_ESCAPE),
         "f1" => Ok(VK_F1),
         "f2" => Ok(VK_F2),
         "f3" => Ok(VK_F3),
