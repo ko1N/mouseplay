@@ -38,7 +38,7 @@
         "multiplier_y": 0.3,
         "dead_zone_y": 13,
 
-        "sensitivity": 5,
+        "sensitivity": 3,
         "exponent": 1,
 
         "shape": "circle"

@@ -1,3 +1,7 @@
+<p align="center">
+<img src="mouseplay.logo.png" alt="mouseplay" title="mouseplay" />
+</p>
+
 # mouseplay
 
 mouseplay enables you to use a regular mouse & keyboard with the PS Remote Play Tool. The mouse and keyboard buttons are being translated to controller inputs.
@@ -18,7 +22,7 @@ rustup target add i686-pc-windows-msvc
 
 To compile the project you can just run
 ```
-cargo +stable-i686-pc-windows-msvc build --target=i686-pc-windows-msvc --release
+cargo build --target=i686-pc-windows-msvc --release
 ```
 or execute the provided `build.bat` file.
 
