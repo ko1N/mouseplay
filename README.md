@@ -3,6 +3,8 @@
 </p>
 
 # mouseplay
+[![GPL3 licensed](https://img.shields.io/badge/license-GPL3-blue.svg)](LICENSE)
+[![Discord](https://img.shields.io/discord/795497955506913291?color=%20%237289da&label=Discord)](https://discord.gg/afsEtMR)
 
 mouseplay enables you to use a regular mouse & keyboard with the PS Remote Play Tool. The mouse and keyboard buttons are being translated to controller inputs.
 
